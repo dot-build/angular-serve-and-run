@@ -1,0 +1,10 @@
+{
+  "$schema": "./node_modules/@angular-devkit/architect/src/builders-schema.json",
+  "builders": {
+    "run": {
+      "implementation": "./dist/index.js",
+      "schema": "./schema.json",
+      "description": "Angular CLI target to run commands after the development server is running"
+    }
+  }
+}

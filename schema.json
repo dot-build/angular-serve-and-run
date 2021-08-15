@@ -1,0 +1,30 @@
+{
+  "title": "Serve and run command",
+  "description": "Angular CLI target to run commands after the application is running",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "devServerTarget": {
+      "type": "string",
+      "description": "Dev server target to run tests against."
+    },
+    "watch": {
+      "type": "boolean",
+      "description": "Recompile and run tests when files change.",
+      "default": false
+    },
+    "command": {
+      "type": "string",
+      "description": "Shell command to execute when files change",
+      "default": "echo 'Server running'"
+    },
+    "args": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "description": "Shell command to execute when files change",
+        "default": "echo 'Server running'"
+      }
+    }
+  }
+}
