@@ -1,4 +1,4 @@
-# serve-and-run-angular
+# @dot-build/serve-and-run-angular
 
 Serve your Angular project, then run a command.
 
@@ -13,7 +13,15 @@ This builder allows you to run any command after serve, so you don't need a new 
 
 ## Usage
 
-Example: run `npm run e2e_ci` after the local development server is ready:
+Install the module as a dev dependency:
+
+```sh
+npm i -D @dot-build/serve-and-run-angular
+```
+
+Then add it to your `angular.json` as a build.
+
+For example, to run `npm run e2e_ci` after the local development server is ready:
 
 ```json
 // e2e setup in angular.json
@@ -35,7 +43,7 @@ Example: run `npm run e2e_ci` after the local development server is ready:
           }
         },
         "e2e": {
-          "builder": "serve-and-run-angular:run",
+          "builder": "@dot-build/serve-and-run-angular:run",
           "options": {
             "devServerTarget": "your-application:serve",
             "command": "npm",
