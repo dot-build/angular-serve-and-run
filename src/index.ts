@@ -7,54 +7,76 @@ import {
 } from '@angular-devkit/architect';
 import { asWindowsPath, normalize } from '@angular-devkit/core';
 import * as os from 'os';
-import { dirname } from 'path';
 import { from, noop, Observable, of, throwError } from 'rxjs';
 import { catchError, concatMap, first, map, switchMap, tap } from 'rxjs/operators';
 import { spawnSync as sh } from 'child_process';
 
-export interface RunnerOptions {
+export interface UserOptions {
   devServerTarget?: string;
   command: string;
   args?: string[];
-  workspace: string;
-  baseUrl?: string;
   watch?: boolean;
 }
 
-function builderFactory(options: RunnerOptions, context: BuilderContext): Observable<BuilderOutput> {
+export interface RunnerOptions {
+  devServerTarget: string;
+  workspace: string;
+  command: string;
+  args: string[];
+  watch: boolean;
+}
+
+function builderFactory(userOptions: UserOptions, context: BuilderContext): Observable<BuilderOutput> {
   const projectName = (context.target && context.target.project) || '';
   const workspace = context.getProjectMetadata(projectName);
 
   return from(workspace).pipe(
-    map(() => os.platform() === 'win32'),
-    map((isWindows) =>
-      !isWindows ? normalize(context.workspaceRoot) : asWindowsPath(normalize(context.workspaceRoot)),
-    ),
-    map((workspace) => {
-      return {
-        ...options,
-        workspace: workspace,
-        args: options.args || [],
-      };
-    }),
-    switchMap((options: RunnerOptions) => {
-      return (
-        options.devServerTarget ? startDevServerTarget(options.devServerTarget, !!options.watch, context) : of({})
-      ).pipe(
-        tap(() => context.logger.info(`Running command after changes: ${options.command} ${options.args?.join(' ')}`)),
-        concatMap(() => runCommand(context, options)),
-        options.watch ? tap(noop) : first(),
+    switchMap(() => getRunnerOptions(context, userOptions)),
+    switchMap((runnerOptions) => {
+      const target: Observable<BuilderOutput> = runnerOptions.devServerTarget
+        ? startDevServerTarget(runnerOptions.devServerTarget, !!runnerOptions.watch, context)
+        : of({ success: true });
+
+      return target.pipe(
+        tap(() =>
+          context.logger.info(
+            `Running command after changes: ${runnerOptions.command} ${runnerOptions.args.join(' ')}`,
+          ),
+        ),
+        concatMap(() => runCommand(context, runnerOptions)),
+        runnerOptions.watch ? tap(noop) : first(),
         catchError(onError(context)),
       );
     }),
   );
 }
 
-export function startDevServerTarget(devServerTarget: string, watch: boolean, context: any): Observable<any> {
-  const serveOptions = { watch };
+function getRunnerOptions(context: BuilderContext, options: UserOptions): Observable<RunnerOptions> {
+  return of(os.platform() === 'win32').pipe(
+    map((win32) => (!win32 ? normalize(context.workspaceRoot) : asWindowsPath(normalize(context.workspaceRoot)))),
+    map(
+      (workspace) =>
+        ({
+          ...options,
+          workspace,
+          args: options.args || [],
+          watch: !!options.watch,
+          devServerTarget: options.devServerTarget || '',
+        } as RunnerOptions),
+    ),
+  );
+}
 
-  return of(scheduleTargetAndForget(context, targetFromTargetString(devServerTarget), serveOptions)).pipe(
-    map((output: any) => {
+function startDevServerTarget(
+  devServerTarget: string,
+  watch: boolean,
+  context: BuilderContext,
+): Observable<BuilderOutput> {
+  const serveOptions = { watch };
+  const server = scheduleTargetAndForget(context, targetFromTargetString(devServerTarget), serveOptions);
+
+  return server.pipe(
+    map((output) => {
       if (!output.success && !watch) {
         throw new Error('Failed to run the dev server!');
       }
@@ -64,7 +86,7 @@ export function startDevServerTarget(devServerTarget: string, watch: boolean, co
   );
 }
 
-function runCommand(context: any, options: RunnerOptions): Observable<BuilderOutput> {
+function runCommand(context: BuilderContext, options: RunnerOptions): Observable<BuilderOutput> {
   let result: Observable<string>;
 
   try {
@@ -81,18 +103,18 @@ function runCommand(context: any, options: RunnerOptions): Observable<BuilderOut
   }
 
   return result.pipe(
-    tap((output) => context.logger.info(output)),
+    tap((output) => context.logger.info(String(output))),
     map(() => ({ success: true })),
     catchError(onError(context)),
   );
 }
 
-function onError(context: any) {
-  return (error: any) =>
-    of({ success: false, error }).pipe(
+function onError(context: BuilderContext) {
+  return (error: Error) =>
+    of({ success: false, error: String(error.message || error) }).pipe(
       tap(() => context.reportStatus(`Error: ${error.message}`)),
       tap(() => context.logger.error(error.message)),
     );
 }
 
-export default createBuilder<RunnerOptions>(builderFactory);
+export default createBuilder<UserOptions>(builderFactory);

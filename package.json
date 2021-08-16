@@ -1,14 +1,13 @@
 {
-  "name": "serve-and-run-angular",
-  "version": "1.0.0",
-  "description": "Angular CLI integration to serve the application and run a command",
+  "name": "@dot-build/serve-and-run-angular",
+  "version": "0.0.0",
+  "description": "Angular CLI builder to serve the application and run a command",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc"
   },
   "keywords": [
-    "playwright",
     "angular",
     "e2e"
   ],
@@ -22,6 +21,13 @@
   "dependencies": {
     "@angular-devkit/architect": "^0.1202.1",
     "@angular-devkit/core": "^12.2.1",
-    "rxjs": "^7.3.0"
+    "rxjs": "^6.6.7"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dot-build/angular-serve-and-run.git"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
