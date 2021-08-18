@@ -6,10 +6,10 @@ import {
   targetFromTargetString,
 } from '@angular-devkit/architect';
 import { asWindowsPath, normalize } from '@angular-devkit/core';
-import * as os from 'os';
-import { from, noop, Observable, of, throwError } from 'rxjs';
-import { catchError, concatMap, first, map, switchMap, tap } from 'rxjs/operators';
-import { spawnSync as sh } from 'child_process';
+import { platform } from 'os';
+import { BehaviorSubject, from, noop, Observable, of, Subject, throwError } from 'rxjs';
+import { catchError, concatMap, filter, first, map, switchMap, tap } from 'rxjs/operators';
+import { spawn as sh } from 'child_process';
 
 export interface UserOptions {
   devServerTarget?: string;
@@ -28,43 +28,37 @@ export interface RunnerOptions {
 
 function builderFactory(userOptions: UserOptions, context: BuilderContext): Observable<BuilderOutput> {
   const projectName = (context.target && context.target.project) || '';
-  const workspace = context.getProjectMetadata(projectName);
+  const workspace = from(context.getProjectMetadata(projectName));
 
-  return from(workspace).pipe(
-    switchMap(() => getRunnerOptions(context, userOptions)),
+  return workspace.pipe(
+    map(() => getRunnerOptions(context, userOptions)),
+    tap((options) => context.logger.info(`Running with command: ${options.command} ${options.args.join(' ')}`)),
     switchMap((runnerOptions) => {
-      const target: Observable<BuilderOutput> = runnerOptions.devServerTarget
-        ? startDevServerTarget(runnerOptions.devServerTarget, !!runnerOptions.watch, context)
+      const server: Observable<BuilderOutput> = runnerOptions.devServerTarget
+        ? startDevServerTarget(runnerOptions.devServerTarget, runnerOptions.watch, context).pipe(
+            runnerOptions.watch ? tap(noop) : first(),
+          )
         : of({ success: true });
 
-      return target.pipe(
-        tap(() =>
-          context.logger.info(
-            `Running command after changes: ${runnerOptions.command} ${runnerOptions.args.join(' ')}`,
-          ),
-        ),
-        concatMap(() => runCommand(context, runnerOptions)),
-        runnerOptions.watch ? tap(noop) : first(),
-        catchError(onError(context)),
+      return server.pipe(
+        switchMap(() => runCommand(context, runnerOptions)),
+        catchError((error) => onError(context, error)),
       );
     }),
   );
 }
 
-function getRunnerOptions(context: BuilderContext, options: UserOptions): Observable<RunnerOptions> {
-  return of(os.platform() === 'win32').pipe(
-    map((win32) => (!win32 ? normalize(context.workspaceRoot) : asWindowsPath(normalize(context.workspaceRoot)))),
-    map(
-      (workspace) =>
-        ({
-          ...options,
-          workspace,
-          args: options.args || [],
-          watch: !!options.watch,
-          devServerTarget: options.devServerTarget || '',
-        } as RunnerOptions),
-    ),
-  );
+function getRunnerOptions(context: BuilderContext, options: UserOptions): RunnerOptions {
+  const isWindows = platform() === 'win32';
+  const workspace = !isWindows ? normalize(context.workspaceRoot) : asWindowsPath(normalize(context.workspaceRoot));
+
+  return {
+    ...options,
+    workspace,
+    args: options.args || [],
+    watch: !!options.watch,
+    devServerTarget: options.devServerTarget || '',
+  };
 }
 
 function startDevServerTarget(
@@ -81,40 +75,47 @@ function startDevServerTarget(
         throw new Error('Failed to run the dev server!');
       }
 
-      return output;
+      return { success: output.success };
     }),
   );
 }
 
 function runCommand(context: BuilderContext, options: RunnerOptions): Observable<BuilderOutput> {
-  let result: Observable<string>;
+  const result = new BehaviorSubject<BuilderOutput>({ success: true });
 
   try {
-    result = of(
-      sh(options.command, options.args, {
-        encoding: 'utf-8',
-        shell: true,
-        stdio: 'pipe',
-        cwd: options.workspace,
-      }).output.join('\n'),
-    );
+    const shell = sh(options.command, options.args, {
+      shell: true,
+      detached: true,
+      cwd: options.workspace,
+    });
+
+    const onData = (data: string) => process.stdout.write(String(data || ''));
+    shell.stdout.on('data', onData);
+    shell.stderr.on('data', onData);
+    shell.on('error', (error) => onError(context, error));
+    shell.on('exit', (code) => {
+      if (code) {
+        onError(context, new Error('Command exited with code: ' + code));
+      }
+
+      if (!options.watch) {
+        result.complete();
+      }
+    });
+    result.next({ success: true });
   } catch (error) {
-    result = throwError(() => error);
+    result.next({ success: false, error: error.message });
   }
 
-  return result.pipe(
-    tap((output) => context.logger.info(String(output))),
-    map(() => ({ success: true })),
-    catchError(onError(context)),
-  );
+  return result;
 }
 
-function onError(context: BuilderContext) {
-  return (error: Error) =>
-    of({ success: false, error: String(error.message || error) }).pipe(
-      tap(() => context.reportStatus(`Error: ${error.message}`)),
-      tap(() => context.logger.error(error.message)),
-    );
+function onError(context: BuilderContext, error: Error): Observable<BuilderOutput> {
+  return of({ success: false }).pipe(
+    tap(() => context.reportStatus(`Error: ${error.message}`)),
+    tap(() => context.logger.error(String(error.message))),
+  );
 }
 
 export default createBuilder<UserOptions>(builderFactory);
